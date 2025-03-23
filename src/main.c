@@ -83,6 +83,32 @@ uint8_t label_to_net(char *domain, uint8_t *out, size_t out_size) {
   return out_ptr - out;
 }
 
+uint8_t record_to_net(char *domain, uint32_t ttl, uint32_t ip, uint8_t *out,
+                      size_t out_size) {
+  uint8_t written = label_to_net(domain, out, out_size);
+  uint8_t *out_ptr = out + written;
+  size_t new_out_size = out_size - written;
+
+  uint32_t n_ttl = htonl(ttl);
+  memcpy(out_ptr, &n_ttl, 4);
+  out_ptr += 4;
+
+  uint16_t rsize = htons(4);
+  memcpy(out_ptr, &rsize, 2);
+  out_ptr += 2;
+
+  uint32_t n_out_size = htonl(out_size);
+  memcpy(out_ptr, &n_ttl, 4);
+  out_ptr += 4;
+
+  return out_ptr - out;
+}
+
+uint32_t ip(char p1, char p2, char p3, char p4) {
+  char ip_arr[4] = {p1, p2, p3, p4};
+  return *ip_arr;
+}
+
 int main() {
   setbuf(stdout, NULL);
   setbuf(stderr, NULL);
@@ -141,7 +167,7 @@ int main() {
         .id = 1234,
         .flags = HF_QUERY_RESPONSE,
         .qdcount = 1,
-        .ancount = 0,
+        .ancount = 1,
         .nscount = 0,
         .arcount = 0,
     };
@@ -150,6 +176,9 @@ int main() {
     written = 12;
     written +=
         label_to_net("codecrafters.io", response + written, 512 - written);
+
+    written += record_to_net("codecrafters.io", 60, ip(8, 8, 8, 8),
+                             response + written, 512 - written);
 
     // Send response
     if (sendto(udpSocket, response, sizeof(uint8_t) * written, 0,
