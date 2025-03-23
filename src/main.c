@@ -36,6 +36,19 @@ void header_to_net(struct header_t header, uint16_t *out) {
   out[5] = htons(header.arcount);
 }
 
+struct header_t header_from_net(uint16_t *question) {
+  struct header_t header = {
+      .id = ntohs(question[0]),
+      .flags = ntohs(question[1]),
+      .qdcount = ntohs(question[2]),
+      .ancount = ntohs(question[3]),
+      .nscount = ntohs(question[4]),
+      .arcount = ntohs(question[5]),
+  };
+
+  return header;
+}
+
 uint8_t label_to_net(char *domain, uint8_t *out, size_t out_size) {
   uint8_t *out_ptr = out;
   const char *label_start = domain;
@@ -145,7 +158,7 @@ int main() {
   }
 
   int bytesRead;
-  char buffer[512];
+  uint8_t buffer[512];
   socklen_t clientAddrLen = sizeof(clientAddress);
 
   while (1) {
@@ -160,13 +173,18 @@ int main() {
     buffer[bytesRead] = '\0';
     printf("Received %d bytes: %s\n", bytesRead, buffer);
 
+    struct header_t question_header = header_from_net((uint16_t *)buffer);
+
+    uint16_t opcode = question_header.flags >> 11 & 0xF;
+    uint16_t rcode = opcode == 0 ? 0 : 4;
+
     // Create an empty response
     uint8_t response[512];
     size_t written = 0;
     struct header_t res_header = {
-        .id = 1234,
-        .flags = HF_QUERY_RESPONSE,
-        .qdcount = 1,
+        .id = question_header.id,
+        .flags = question_header.flags | HF_QUERY_RESPONSE | rcode,
+        .qdcount = question_header.qdcount,
         .ancount = 1,
         .nscount = 0,
         .arcount = 0,
