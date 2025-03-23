@@ -36,6 +36,53 @@ void header_to_net(struct header_t header, uint16_t *out) {
   out[5] = htons(header.arcount);
 }
 
+uint8_t label_to_net(char *domain, uint8_t *out, size_t out_size) {
+  uint8_t *out_ptr = out;
+  const char *label_start = domain;
+  const char *label_end;
+
+  if (domain[0] == '.') {
+    return 0;
+  }
+
+  while (*label_start) {
+    label_end = strchr(label_start, '.');
+    if (!label_end) {
+      label_end = label_start + strlen(label_start);
+    }
+
+    uint8_t label_len = label_end - label_start;
+    if (out_ptr - out + label_len + 1 + 4 > out_size) {
+      return 0;
+    }
+
+    *out_ptr++ = label_len;
+
+    memcpy(out_ptr, label_start, label_len);
+    out_ptr += label_len;
+
+    if (!*label_end) {
+      break;
+    }
+
+    label_start = label_end + 1;
+  }
+
+  *out_ptr++ = 0;
+
+  // Record type A
+  uint16_t record_type = htons(1);
+  memcpy(out_ptr, &record_type, 2);
+  out_ptr += 2;
+
+  // Record class IN
+  uint16_t record_class = htons(1);
+  memcpy(out_ptr, &record_class, 2);
+  out_ptr += 2;
+
+  return out_ptr - out;
+}
+
 int main() {
   setbuf(stdout, NULL);
   setbuf(stderr, NULL);
@@ -88,20 +135,24 @@ int main() {
     printf("Received %d bytes: %s\n", bytesRead, buffer);
 
     // Create an empty response
-    uint8_t response[12];
+    uint8_t response[512];
+    size_t written = 0;
     struct header_t res_header = {
         .id = 1234,
         .flags = HF_QUERY_RESPONSE,
-        .qdcount = 0,
+        .qdcount = 1,
         .ancount = 0,
         .nscount = 0,
         .arcount = 0,
     };
 
     header_to_net(res_header, (uint16_t *)response);
+    written = 12;
+    written +=
+        label_to_net("codecrafters.io", response + written, 512 - written);
 
     // Send response
-    if (sendto(udpSocket, response, sizeof(response), 0,
+    if (sendto(udpSocket, response, sizeof(uint8_t) * written, 0,
                (struct sockaddr *)&clientAddress,
                sizeof(clientAddress)) == -1) {
       perror("Failed to send response");
