@@ -96,6 +96,46 @@ uint8_t label_to_net(char *domain, uint8_t *out, size_t out_size) {
   return out_ptr - out;
 }
 
+uint8_t labels_from_net(uint8_t *buffer, size_t buffer_size,
+                        uint16_t domains_no, uint8_t *out, size_t out_size) {
+  uint8_t written = 0;
+  uint8_t next_domain_size;
+  uint8_t *cursor = buffer;
+
+  if (*cursor == '\0') {
+    return -1;
+  }
+
+  for (uint16_t i = 0; i < domains_no; i++) {
+    while (*cursor) {
+      next_domain_size = *cursor;
+      if (cursor - buffer + 1 + next_domain_size > buffer_size) {
+        return -1;
+      }
+
+      if (out_size - written + 1 < next_domain_size) {
+        return -1;
+      }
+
+      cursor++;
+      memcpy(out, cursor, next_domain_size);
+      out += next_domain_size;
+
+      if (cursor[next_domain_size] == '\0') {
+        *out++ = '\0';
+      } else {
+        *out++ = '.';
+      }
+      written += next_domain_size + 1;
+      cursor += next_domain_size;
+    }
+
+    cursor += 5;
+  }
+
+  return 0;
+}
+
 uint8_t record_to_net(char *domain, uint32_t ttl, uint32_t ip, uint8_t *out,
                       size_t out_size) {
   uint8_t written = label_to_net(domain, out, out_size);
@@ -110,8 +150,8 @@ uint8_t record_to_net(char *domain, uint32_t ttl, uint32_t ip, uint8_t *out,
   memcpy(out_ptr, &rsize, 2);
   out_ptr += 2;
 
-  uint32_t n_out_size = htonl(out_size);
-  memcpy(out_ptr, &n_ttl, 4);
+  uint32_t n_ip = htonl(ip);
+  memcpy(out_ptr, &n_ip, 4);
   out_ptr += 4;
 
   return out_ptr - out;
@@ -119,7 +159,7 @@ uint8_t record_to_net(char *domain, uint32_t ttl, uint32_t ip, uint8_t *out,
 
 uint32_t ip(char p1, char p2, char p3, char p4) {
   char ip_arr[4] = {p1, p2, p3, p4};
-  return *ip_arr;
+  return *((uint32_t *)ip_arr);
 }
 
 int main() {
@@ -180,7 +220,8 @@ int main() {
 
     // Create an empty response
     uint8_t response[512];
-    size_t written = 0;
+    uint8_t request_domains[500];
+    size_t written = -1;
     struct header_t res_header = {
         .id = question_header.id,
         .flags = question_header.flags | HF_QUERY_RESPONSE | rcode,
@@ -191,12 +232,25 @@ int main() {
     };
 
     header_to_net(res_header, (uint16_t *)response);
+    labels_from_net(buffer + 12, 500, question_header.qdcount, request_domains,
+                    500);
     written = 12;
-    written +=
-        label_to_net("codecrafters.io", response + written, 512 - written);
+    for (uint16_t i = 0; i < question_header.qdcount; i++) {
+      uint8_t *cursor = request_domains;
+      size_t label_size =
+          label_to_net((char *)cursor, response + written, 512 - written);
+      cursor += label_size;
+      written += label_size;
+    }
 
-    written += record_to_net("codecrafters.io", 60, ip(8, 8, 8, 8),
-                             response + written, 512 - written);
+    for (uint16_t i = 0; i < question_header.qdcount; i++) {
+      uint8_t *cursor = request_domains;
+      size_t label_size = record_to_net((char *)cursor, 60, ip(8, 8, 8, 8),
+                                        response + written, 512 - written);
+
+      cursor += label_size;
+      written += label_size;
+    }
 
     // Send response
     if (sendto(udpSocket, response, sizeof(uint8_t) * written, 0,
