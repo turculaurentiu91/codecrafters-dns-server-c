@@ -101,6 +101,7 @@ uint8_t labels_from_net(uint8_t *buffer, size_t buffer_size,
   uint8_t written = 0;
   uint8_t next_domain_size;
   uint8_t *cursor = buffer;
+  uint8_t is_pointer = 0;
 
   if (*cursor == '\0') {
     return -1;
@@ -108,6 +109,17 @@ uint8_t labels_from_net(uint8_t *buffer, size_t buffer_size,
 
   for (uint16_t i = 0; i < domains_no; i++) {
     while (*cursor) {
+      uint16_t pointer_header = *(uint16_t *)cursor;
+      uint16_t pointer_header_flag = 0b1100000000000000;
+      if ((pointer_header & pointer_header_flag) == pointer_header_flag) {
+        printf("IS pointer\n");
+        is_pointer = 1;
+        pointer_header = pointer_header & 0b0011111111111111;
+      } else {
+        is_pointer = 0;
+        printf("NOT pointer\n");
+      }
+
       next_domain_size = *cursor;
       if (cursor - buffer + 1 + next_domain_size > buffer_size) {
         return -1;
@@ -226,7 +238,7 @@ int main() {
         .id = question_header.id,
         .flags = question_header.flags | HF_QUERY_RESPONSE | rcode,
         .qdcount = question_header.qdcount,
-        .ancount = 1,
+        .ancount = question_header.qdcount,
         .nscount = 0,
         .arcount = 0,
     };
